@@ -26,6 +26,7 @@
     Get all apps which have application permissions for Directory.Read.All.
 #>
 
+[CmdletBinding()]
 param(
     [switch] $DelegatedPermissions,
 
@@ -145,7 +146,8 @@ if ($ApplicationPermissions -or (-not ($DelegatedPermissions -or $ApplicationPer
             $assignment = $_
 
             $resource = GetObjectByObjectId -ObjectId $assignment.ResourceId
-            
+            $appRole = $resource.AppRoles | Where-Object { $_.Id -eq $assignment.Id }
+
             New-Object PSObject -Property ([ordered]@{
                 "PermissionType" = "Application"
                 
