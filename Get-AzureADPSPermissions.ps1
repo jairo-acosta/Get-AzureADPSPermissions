@@ -76,23 +76,60 @@ function GetObjectByObjectId($ObjectId) {
     return $script:ObjectByObjectId[$ObjectId]
 }
 
+# Function to retrieve all OAuth2PermissionGrants, either by directly listing them (-FastMode)
+# or by iterating over all ServicePrincipal objects. The latter is required if there are more than
+# 999 OAuth2PermissionGrants in the tenant, due to a bug in Azure AD.
+function GetOAuth2PermissionGrants([switch]$FastMode) {
+    if ($FastMode) {
+        Get-AzureADOAuth2PermissionGrant -All $true
+    } else {
+        $script:ObjectByObjectClassId['ServicePrincipal'].GetEnumerator() | ForEach-Object { $i = 0 } {
+            if ($ShowProgress) {
+                Write-Progress -Activity "Retrieving delegated permissions..." `
+                               -Status ("Checked {0}/{1} apps" -f $i++, $servicePrincipalCount) `
+                               -PercentComplete (($i / $servicePrincipalCount) * 100)
+            }
+
+            $client = $_.Value
+            Get-AzureADServicePrincipalOAuth2PermissionGrant -ObjectId $client.ObjectId
+        }
+    }
+}
+
 # Get all ServicePrincipal objects and add to the cache
-Write-Verbose "Retrieving ServicePrincipal objects..."
+Write-Verbose "Retrieving all ServicePrincipal objects..."
 Get-AzureADServicePrincipal -All $true | Where-Object {
     CacheObject -Object $_
 }
+$servicePrincipalCount = $script:ObjectByObjectClassId['ServicePrincipal'].Count
 
 if ($DelegatedPermissions -or (-not ($DelegatedPermissions -or $ApplicationPermissions))) {
 
     # Get one page of User objects and add to the cache
-    Write-Verbose "Retrieving User objects..."
+    Write-Verbose ("Retrieving up to {0} User objects..." -f $PrecacheSize)
     Get-AzureADUser -Top $PrecacheSize | Where-Object {
         CacheObject -Object $_
     }
-
+    
+    Write-Verbose "Testing for OAuth2PermissionGrants bug before querying..."
+    $fastQueryMode = $false
+    try {
+        # There's a bug in Azure AD Graph which does not allow for directly listing
+        # oauth2PermissionGrants if there are more than 999 of them. The following line will 
+        # trigger this bug (if it still exists) and throw an exception.
+        $null = Get-AzureADOAuth2PermissionGrant -Top 999
+        $fastQueryMode = $true
+    } catch {
+        if ($_.Exception.Message -and $_.Exception.Message.StartsWith("Unexpected end when deserializing array.")) {
+            Write-Verbose ("Fast query for delegated permissions failed, using slow method...")
+        } else {
+            throw $_
+        }
+    }
+    
     # Get all existing OAuth2 permission grants, get the client, resource and scope details
     Write-Verbose "Retrieving OAuth2PermissionGrants..."
-    Get-AzureADOAuth2PermissionGrant -All $true | ForEach-Object {
+    GetOAuth2PermissionGrants -FastMode:$fastQueryMode | ForEach-Object {
         $grant = $_
         if ($grant.Scope) {
             $grant.Scope.Split(" ") | Where-Object { $_ } | ForEach-Object {
@@ -130,7 +167,6 @@ if ($ApplicationPermissions -or (-not ($DelegatedPermissions -or $ApplicationPer
 
     # Iterate over all ServicePrincipal objects and get app permissions
     Write-Verbose "Retrieving AppRoleAssignments..."
-    $servicePrincipalCount = $script:ObjectByObjectClassId['ServicePrincipal'].Count
     $script:ObjectByObjectClassId['ServicePrincipal'].GetEnumerator() | ForEach-Object { $i = 0 } {
         
         if ($ShowProgress) {
