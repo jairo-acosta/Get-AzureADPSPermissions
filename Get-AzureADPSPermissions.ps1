@@ -175,12 +175,13 @@ if ($ApplicationPermissions -or (-not ($DelegatedPermissions -or $ApplicationPer
                         -PercentComplete (($i / $servicePrincipalCount) * 100)
         }
 
-        $client = $_.Value
+        $sp = $_.Value
         
-        Get-AzureADServiceAppRoleAssignedTo -ObjectId $client.ObjectId -All $true `
+        Get-AzureADServiceAppRoleAssignedTo -ObjectId $sp.ObjectId -All $true `
         | Where-Object { $_.PrincipalType -eq "ServicePrincipal" } | ForEach-Object {
             $assignment = $_
 
+            $client = GetObjectByObjectId -ObjectId $assignment.PrincipalId
             $resource = GetObjectByObjectId -ObjectId $assignment.ResourceId
             $appRole = $resource.AppRoles | Where-Object { $_.Id -eq $assignment.Id }
 
