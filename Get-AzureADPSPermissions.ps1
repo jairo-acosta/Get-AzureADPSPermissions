@@ -98,7 +98,7 @@ function GetOAuth2PermissionGrants([switch]$FastMode) {
 
 # Get all ServicePrincipal objects and add to the cache
 Write-Verbose "Retrieving all ServicePrincipal objects..."
-Get-AzureADServicePrincipal -All $true | Where-Object {
+Get-AzureADServicePrincipal -All $true | ForEach-Object {
     CacheObject -Object $_
 }
 $servicePrincipalCount = $script:ObjectByObjectClassId['ServicePrincipal'].Count
